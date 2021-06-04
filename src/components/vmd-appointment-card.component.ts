@@ -1,11 +1,27 @@
-import {css, customElement, html, LitElement, property, unsafeCSS} from 'lit-element';
+import {
+    css,
+    customElement,
+    html,
+    LitElement,
+    property,
+    unsafeCSS
+} from 'lit-element';
 import {classMap} from "lit-html/directives/class-map";
-import {Lieu, Plateforme, PLATEFORMES, TYPES_LIEUX} from "../state/State";
+import {
+    Lieu,
+    LieuAffichableAvecDistance,
+    Plateforme,
+    PLATEFORMES,
+    typeActionPour,
+    TYPES_LIEUX
+} from "../state/State";
 import {Router} from "../routing/Router";
-import {Dates} from "../utils/Dates";
 import appointmentCardCss from "./vmd-appointment-card.component.scss";
-import globalCss from "../styles/global.scss";
 import {Strings} from "../utils/Strings";
+import {TemplateResult} from "lit-html";
+import {CSS_Global} from "../styles/ConstructibleStyleSheets";
+import { format as formatDate, parseISO } from "date-fns"
+import { fr } from 'date-fns/locale'
 
 type LieuCliqueContext = {lieu: Lieu};
 export type LieuCliqueCustomEvent = CustomEvent<LieuCliqueContext>;
@@ -15,20 +31,14 @@ export class VmdAppointmentCardComponent extends LitElement {
 
     //language=css
     static styles = [
-        css`${unsafeCSS(globalCss)}`,
+        CSS_Global,
         css`${unsafeCSS(appointmentCardCss)}`,
         css`
         `
     ];
 
-    @property({type: Object, attribute: false}) lieu!: Lieu;
-    @property({type: Number, attribute: false}) distance!: number;
-    /* dunno why, but boolean string is not properly converted to boolean when using attributes */
-    @property({type: Boolean, attribute: false }) rdvPossible!: boolean;
-
-    private get estCliquable() {
-        return !!this.lieu.url;
-    }
+    @property({type: Object, attribute: false}) lieu!: LieuAffichableAvecDistance;
+    @property({type: String}) theme!: string;
 
     constructor() {
         super();
@@ -47,107 +57,151 @@ export class VmdAppointmentCardComponent extends LitElement {
     }
 
     render() {
-        if(this.rdvPossible) {
             const plateforme: Plateforme|undefined = PLATEFORMES[this.lieu.plateforme];
-            let distance: any = this.distance
-            if (distance >= 10) {
-              distance = distance.toFixed(0)
-            } else if (distance) {
-              distance = distance.toFixed(1)
+            let distance: string|undefined;
+            if (this.lieu.distance && this.lieu.distance >= 10) {
+              distance = this.lieu.distance.toFixed(0)
+            } else if (this.lieu.distance) {
+              distance = this.lieu.distance.toFixed(1)
             }
-            return html`
-            <div class="card rounded-3 mb-5 ${classMap({clickable: this.estCliquable})}"
-                 @click="${() => this.prendreRdv()}">
-                <div class="card-body">
+
+            // FIXME créer un type `SearchResultItem` ou un truc du genre, pour avoir une meilleure vue des cas possibles
+            // Qu'un if-pit de 72 lignes de long et 190 colonnes de large xD
+            let cardConfig: {
+                cardLink:(content: TemplateResult) => TemplateResult,
+                disabledBG: boolean,
+                actions: TemplateResult|undefined, libelleDateAbsente: string
+            };
+            let typeLieu = typeActionPour(this.lieu);
+            if(typeLieu === 'actif-via-plateforme' || typeLieu === 'inactif-via-plateforme') {
+                let specificCardConfig: { disabledBG: boolean, libelleDateAbsente: string, libelleBouton: string, typeBouton: 'btn-info'|'btn-primary', onclick: ()=>void };
+                if(typeLieu === 'inactif-via-plateforme') {
+                    specificCardConfig = {
+                        disabledBG: true,
+                        libelleDateAbsente: 'Aucun rendez-vous',
+                        libelleBouton: 'Vérifier le centre de vaccination',
+                        typeBouton: 'btn-info',
+                        onclick: () => this.verifierRdv()
+                    };
+                } else {
+                    specificCardConfig = {
+                        disabledBG: false,
+                        libelleDateAbsente: 'Date inconnue',
+                        libelleBouton: 'Prendre rendez-vous',
+                        typeBouton: 'btn-primary',
+                        onclick: () => this.prendreRdv()
+                    };
+                }
+
+                cardConfig = {
+                    disabledBG: specificCardConfig.disabledBG,
+                    libelleDateAbsente: specificCardConfig.libelleDateAbsente,
+                    cardLink: (content) =>
+                        html`<div>${content}</div>`,
+                    actions: html`
+                      <button type="button" @click="${() => { specificCardConfig.onclick(); } }"
+                         class="btn btn-lg ${classMap({ 'btn-primary': specificCardConfig.typeBouton==='btn-primary', 'btn-info': specificCardConfig.typeBouton==='btn-info' })}">
+                        ${specificCardConfig.libelleBouton}
+                      </button>
+                      <div class="row align-items-center justify-content-center mt-3 text-gray-700">
+                        <div class="col-auto text-description">
+                          ${this.lieu.appointment_count.toLocaleString()} créneau${Strings.plural(this.lieu.appointment_count, "x")}
+                        </div>
+                        ${this.lieu.plateforme?html`
+                        |
+                        <div class="col-auto">
+                            ${plateforme?html`
+                            <img class="rdvPlatformLogo ${plateforme.styleCode}" src="${Router.basePath}assets/images/png/${plateforme.logo}" alt="Créneau de vaccination ${plateforme.nom}">
+                            `:html`
+                            ${this.lieu.plateforme}
+                            `}
+                        </div>
+                        `:html``}
+                      </div>
+                    `
+                };
+            } else if(typeLieu === 'actif-via-tel') {
+                cardConfig = {
+                    disabledBG: false,
+                    libelleDateAbsente: 'Réservation tél uniquement',
+                    cardLink: (content) => html`
+                          <div>
+                            ${content}
+                          </div>`,
+                    actions: html`
+                          <a href="tel:${this.lieu.metadata.phone_number}" class="btn btn-tel btn-lg">
+                            Appeler le ${Strings.toNormalizedPhoneNumber(this.lieu.metadata.phone_number)}
+                          </a>
+                        `
+                };
+            } else if(typeLieu === 'inactif') {
+                cardConfig = {
+                    disabledBG: true,
+                    libelleDateAbsente: 'Aucun rendez-vous',
+                    cardLink: (content) => content,
+                    actions: undefined
+                };
+            } else {
+                throw new Error(`Unsupported typeLieu : ${typeLieu}`)
+            }
+
+            return cardConfig.cardLink(html`
+            <div class="card rounded-3 mb-5  ${classMap({
+              'bg-disabled': cardConfig.disabledBG,
+              'search-standard': this.theme==='standard',
+              'search-highlighted': this.theme==='highlighted'
+                })}">
+                <div class="card-body p-4">
                     <div class="row align-items-center ">
                         <div class="col">
-                            <h5 class="card-title">${Dates.isoToFRDatetime(this.lieu.prochain_rdv)}<small class="distance">${distance ? `- ${distance} km` : ''}</small></h5>
+                            <div class="card-title h5">
+                              ${this.cardTitle(cardConfig)}
+                              <small class="distance">${distance ? `- ${distance} km` : ''}</small>
+                            </div>
                             <div class="row">
                               <vmd-appointment-metadata class="mb-2" widthType="full-width" icon="vmdicon-geo-alt-fill">
                                 <div slot="content">
-                                  <span class="fw-bold text-dark">${this.lieu.nom}</span>
+                                  <span class="fw-bold">${this.lieu.nom}</span>
                                   <br/>
-                                  <em>${this.lieu.metadata.address}</em>
+                                  <span class="text-description">${this.lieu.metadata.address}</span>
                                 </div>
                               </vmd-appointment-metadata>
                               <vmd-appointment-metadata class="mb-2" widthType="fit-to-content" icon="vmdicon-telephone-fill" .displayed="${!!this.lieu.metadata.phone_number}">
                                 <span slot="content">
                                     <a href="tel:${this.lieu.metadata.phone_number}"
-                                       @click="${(e: Event) => e.stopImmediatePropagation()}">
+                                       @click="${(e: Event) => { e.stopImmediatePropagation(); }}">
                                         ${Strings.toNormalizedPhoneNumber(this.lieu.metadata.phone_number)}
                                     </a>
                                 </span>
                               </vmd-appointment-metadata>
-                              <vmd-appointment-metadata class="mb-2" widthType="fit-to-content" icon="vmdicon-commerical-building">
-                                <span slot="content">${TYPES_LIEUX[this.lieu.type]}</span>
+                              <vmd-appointment-metadata class="mb-2" widthType="fit-to-content" icon="vmdicon-building">
+                                <span class="text-description" slot="content">${TYPES_LIEUX[this.lieu.type]}</span>
                               </vmd-appointment-metadata>
                               <vmd-appointment-metadata class="mb-2" widthType="fit-to-content" icon="vmdicon-syringe" .displayed="${!!this.lieu.vaccine_type}">
-                                <span slot="content">${this.lieu.vaccine_type}</span>
+                                <span class="text-description" slot="content">${this.lieu.vaccine_type}</span>
                               </vmd-appointment-metadata>
                             </div>
                         </div>
 
-                        ${this.estCliquable?html`
+                        ${cardConfig.actions?html`
                         <div class="col-24 col-md-auto text-center mt-4 mt-md-0">
-                            <a href="#" class="btn btn-primary btn-lg">
-                              Prendre rendez-vous
-                            </a>
-                            <div class="row align-items-center justify-content-center mt-3 text-black-50">
-                                <div class="col-auto">
-                                  ${this.lieu.appointment_count.toLocaleString()} dose${Strings.plural(this.lieu.appointment_count)}
-                                </div>
-                                ${this.lieu.plateforme?html`
-                                |
-                                <div class="col-auto">
-                                    ${plateforme?html`
-                                    <img class="rdvPlatformLogo ${plateforme.styleCode}" src="${Router.basePath}assets/images/png/${plateforme.logo}" alt="Créneau de vaccination ${plateforme.nom}">
-                                    `:html`
-                                    ${this.lieu.plateforme}
-                                    `}
-                                </div>
-                                `:html``}
-                            </div>
+                          ${cardConfig.actions}
                         </div>
                         `:html``}
                     </div>
                 </div>
             </div>
-            `;
-        } else {
-            return html`
-              <div class="card rounded-3 mb-5 p-4 bg-disabled" @click="${() => this.verifierRdv()}">
-                <div class="card-body">
-                  <div class="row align-items-center">
-                    <div class="col">
-                      <h5 class="card-title">Aucun rendez-vous</h5>
-                      <vmd-appointment-metadata widthType="full-width" icon="vmdicon-geo-alt-fill">
-                        <div slot="content">
-                          <span class="fw-bold text-dark">${this.lieu.nom}</span>
-                          <br/>
-                          <em>${this.lieu.metadata.address}</em>
-                        </div>
-                      </vmd-appointment-metadata>
-                    </div>
-
-                    ${this.estCliquable?html`
-                    <div class="col-24 col-md-auto text-center mt-4 mt-md-0">
-                      <a href="#" class="btn btn-info btn-lg">Vérifier le centre de vaccination</a>
-                    </div>
-                    `:html``}
-                  </div>
-                </div>
-              </div>
-            `;
-        }
+            `);
     }
 
-    connectedCallback() {
-        super.connectedCallback();
-        // console.log("connected callback")
+    private cardTitle(cardConfig: any): string {
+      if (this.lieu.prochain_rdv) {
+        return this.toTitleCase(formatDate(parseISO(this.lieu.prochain_rdv), "EEEE d MMMM 'à' HH:mm", { locale: fr }))
+      } else {
+        return cardConfig.libelleDateAbsente
+      }
     }
-
-    disconnectedCallback() {
-        super.disconnectedCallback();
-        // console.log("disconnected callback")
+    private toTitleCase(date: string): string {
+      return date.replace(/(^|\s)([a-z])(\w)/g, (_, leader, letter, loser) => [leader, letter.toUpperCase(), loser].join(''))
     }
 }

@@ -1,8 +1,8 @@
 import {
     CodeDepartement, CodeTriCentre,
-    Commune,
+    Commune, isLieuActif,
     Lieu,
-    LieuxAvecDistanceParDepartement,
+    LieuxAvecDistanceParDepartement, SearchType,
 } from "../state/State";
 
 
@@ -30,41 +30,48 @@ export class Analytics {
         });
     }
 
-    clickSurRdv(lieu: Lieu) {
+    clickSurRdv(lieu: Lieu, triCentre: CodeTriCentre, searchType: SearchType, commune: Commune|undefined) {
         window.dataLayer.push({
             'event': 'rdv_click',
             'rdv_departement' : lieu.departement,
-            'rdv_platorm' : lieu.plateforme,
+            'rdv_commune' : commune?`${commune.codePostal} - ${commune.nom} (${commune.code})`:undefined,
             'rdv_platform' : lieu.plateforme,
             'rdv_name': lieu.nom,
             'rdv_location_type' : lieu.type,
             'rdv_vaccine' : lieu.vaccine_type,
-            'rdv_filter_type' : undefined
+            'rdv_sort_type' : triCentre,
+            'rdv_filter_type' : [`kind:${searchType}`].join("|")
         });
     }
 
-    clickSurVerifRdv(lieu: Lieu) {
+    clickSurVerifRdv(lieu: Lieu, triCentre: CodeTriCentre, searchType: SearchType, commune: Commune|undefined) {
         window.dataLayer.push({
             'event': 'rdv_verify',
             'rdv_departement' : lieu.departement,
-            'rdv_platorm' : lieu.plateforme,
+            'rdv_commune' : commune?`${commune.codePostal} - ${commune.nom} (${commune.code})`:undefined,
             'rdv_platform' : lieu.plateforme,
             'rdv_name': lieu.nom,
             'rdv_location_type' : lieu.type,
             'rdv_vaccine' : lieu.vaccine_type,
-            'rdv_filter_type' : undefined
+            'rdv_sort_type' : triCentre,
+            'rdv_filter_type' : [`kind:${searchType}`].join("|")
         });
     }
 
-    rechercheLieuEffectuee(codeDepartement: CodeDepartement, commune: Commune|undefined, resultats: LieuxAvecDistanceParDepartement|undefined) {
+    rechercheLieuEffectuee(codeDepartement: CodeDepartement, triCentre: CodeTriCentre, searchType: SearchType, commune: Commune|undefined, resultats: LieuxAvecDistanceParDepartement|undefined) {
         window.dataLayer.push({
             'event': commune?'search_by_commune':'search_by_departement',
             'search_departement': codeDepartement,
             'search_commune' : commune?`${commune.codePostal} - ${commune.nom} (${commune.code})`:undefined,
-            'search_nb_doses' : resultats?resultats.lieuxDisponibles.reduce((totalDoses, lieu) => totalDoses+lieu.appointment_count, 0):undefined,
-            'search_nb_lieu_vaccination' : resultats?resultats.lieuxDisponibles.length:undefined,
-            'search_nb_lieu_vaccination_inactive' : resultats?resultats.lieuxIndisponibles.length:undefined,
-            'search_filter_type': (this as any).critèreDeTri || 'date'
+            'search_nb_appointments' : resultats?resultats.lieuxAffichables.reduce((totalDoses, lieu) => totalDoses+lieu.appointment_count, 0):undefined,
+            'search_nb_lieu_vaccination' : resultats?resultats.lieuxAffichables
+                .filter(isLieuActif)
+                .length:undefined,
+            'search_nb_lieu_vaccination_inactive' : resultats?resultats.lieuxAffichables
+                .filter(l => !isLieuActif(l))
+                .length:undefined,
+            'search_sort_type': triCentre,
+            'search_filter_type' : [`kind:${searchType}`].join("|")
         });
     }
 

@@ -1,6 +1,6 @@
-import {LitElement, html, customElement, property, css, unsafeCSS} from 'lit-element';
+import {LitElement, html, customElement, property, css } from 'lit-element';
 import {classMap} from "lit-html/directives/class-map";
-import globalCss from "../styles/global.scss";
+import {CSS_Global} from "../styles/ConstructibleStyleSheets";
 
 export type MetadataWidthType = 'full-width'|'fit-to-content'|'3col-equally-distributed'
 const METADATA_WIDTH_CLASSES: {[type in MetadataWidthType]: string} = {
@@ -15,7 +15,7 @@ export class VmdAppointmentMetadataComponent extends LitElement {
 
     //language=css
     static styles = [
-        css`${unsafeCSS(globalCss)}`,
+        CSS_Global,
         css`
         `
     ];
@@ -38,7 +38,7 @@ export class VmdAppointmentMetadataComponent extends LitElement {
         return html`
             <div class="row ${classMap({'align-items-center':!!this.centerIconVertically})}">
                 <i class="bi ${this.icon} col-auto"></i>
-                <p class="card-text col text-black-50">
+                <p class="col card-text">
                   <slot name="content"></slot>
                 </p>
             </div>
